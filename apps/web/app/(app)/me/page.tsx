@@ -9,7 +9,7 @@ export default async function MePage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("username, avatar_url, bio, days_answered, communities_joined")
+    .select("username, avatar_url, bio")
     .eq("id", user.id)
     .single();
 

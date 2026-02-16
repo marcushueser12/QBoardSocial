@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { LikeButton } from "@/components/like-button";
 import { ReportButton } from "@/components/report-button";
@@ -13,10 +14,16 @@ export function BoardClient({
   question,
   myAnswer,
   userId,
+  targetDate,
+  today,
+  recentDates = [],
 }: {
   question: Question | null;
   myAnswer: Answer | null;
   userId: string;
+  targetDate: string;
+  today: string;
+  recentDates?: string[];
 }) {
   const [answerText, setAnswerText] = useState("");
   const [answers, setAnswers] = useState<
@@ -35,47 +42,52 @@ export function BoardClient({
   const [hasFetchedAnswers, setHasFetchedAnswers] = useState(false);
   const supabase = createClient();
 
-  async function fetchAnswers() {
-    if (!question || !myAnswer) return;
+  useEffect(() => {
+    if (!question || !myAnswer || hasFetchedAnswers) return;
+    let cancelled = false;
+    setHasFetchedAnswers(true);
     setLoading(true);
     setError(null);
-    const { data, error: fetchError } = await supabase
-      .from("answers")
-      .select(`
-        id,
-        text,
-        created_at,
-        user_id,
-        profile:profiles!user_id(id, username, avatar_url, is_anonymous)
-      `)
-      .eq("question_id", question.id)
-      .neq("user_id", userId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false });
+    (async () => {
+      const { data, error: fetchError } = await supabase
+        .from("answers")
+        .select(`
+          id,
+          text,
+          created_at,
+          user_id,
+          profile:profiles!user_id(id, username, avatar_url, is_anonymous)
+        `)
+        .eq("question_id", question.id)
+        .neq("user_id", userId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false });
 
-    if (fetchError) {
-      setError(fetchError.message);
-    } else {
-      const answersWithLikes = await Promise.all(
-        (data || []).map(async (a: any) => {
-          const { count } = await supabase
-            .from("reactions")
-            .select("*", { count: "exact", head: true })
-            .eq("answer_id", a.id);
-          const { data: myReaction } = await supabase
-            .from("reactions")
-            .select("id")
-            .eq("answer_id", a.id)
-            .eq("user_id", userId)
-            .single();
-          return { ...a, likeCount: count ?? 0, liked: !!myReaction };
-        })
-      );
-      setAnswers(answersWithLikes);
-    }
-    setHasFetchedAnswers(true);
-    setLoading(false);
-  }
+      if (cancelled) return;
+      if (fetchError) {
+        setError(fetchError.message);
+      } else {
+        const answersWithLikes = await Promise.all(
+          (data || []).map(async (a: any) => {
+            const { count } = await supabase
+              .from("reactions")
+              .select("*", { count: "exact", head: true })
+              .eq("answer_id", a.id);
+            const { data: myReaction } = await supabase
+              .from("reactions")
+              .select("id")
+              .eq("answer_id", a.id)
+              .eq("user_id", userId)
+              .single();
+            return { ...a, likeCount: count ?? 0, liked: !!myReaction };
+          })
+        );
+        setAnswers(answersWithLikes);
+      }
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [question?.id, myAnswer?.id, userId]);
 
   async function handleSubmitAnswer(e: React.FormEvent) {
     e.preventDefault();
@@ -106,10 +118,29 @@ export function BoardClient({
 
   if (!question) {
     return (
-      <div className="rounded-lg border border-gray-200 p-8 text-center dark:border-gray-800">
-        <p className="text-gray-600 dark:text-gray-400">
-          No question for today yet. Check back later!
-        </p>
+      <div>
+        {recentDates.length > 0 && (
+          <div className="mb-6 flex flex-wrap gap-2">
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              Browse:
+            </span>
+            {recentDates.map((d) => (
+              <Link
+                key={d}
+                href={`/board?date=${d}`}
+                className="rounded px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                {d}
+              </Link>
+            ))}
+          </div>
+        )}
+        <div className="rounded-lg border border-gray-200 p-8 text-center dark:border-gray-800">
+          <p className="text-gray-600 dark:text-gray-400">
+            No question for {targetDate === today ? "today" : targetDate} yet.
+            {recentDates.length > 0 ? " Try another date above." : " Check back later!"}
+          </p>
+        </div>
       </div>
     );
   }
@@ -117,6 +148,24 @@ export function BoardClient({
   if (!myAnswer) {
     return (
       <div>
+        {recentDates.length > 1 && (
+          <div className="mb-6 flex flex-wrap gap-2">
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              Browse:
+            </span>
+            {recentDates.map((d) => (
+              <Link
+                key={d}
+                href={`/board?date=${d}`}
+                className={`rounded px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 ${
+                  d === targetDate ? "bg-gray-200 dark:bg-gray-700 font-medium" : ""
+                }`}
+              >
+                {d}
+              </Link>
+            ))}
+          </div>
+        )}
         <div className="rounded-lg bg-gray-100 p-6 dark:bg-gray-800">
           <p className="text-lg font-medium">{question.text}</p>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
@@ -153,10 +202,29 @@ export function BoardClient({
 
   return (
     <div>
+      {recentDates.length > 1 && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            Browse:
+          </span>
+          {recentDates.map((d) => (
+            <Link
+              key={d}
+              href={`/board?date=${d}`}
+              className={`rounded px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 ${
+                d === targetDate ? "bg-gray-200 dark:bg-gray-700 font-medium" : ""
+              }`}
+            >
+              {d}
+            </Link>
+          ))}
+        </div>
+      )}
       <div className="rounded-lg bg-gray-100 p-6 dark:bg-gray-800">
         <p className="text-lg font-medium">{question.text}</p>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
           {question.effective_date}
+          {targetDate !== today && " (past)"}
         </p>
       </div>
 
@@ -167,17 +235,11 @@ export function BoardClient({
 
       <div className="mt-8">
         <h2 className="text-xl font-semibold">Others&apos; answers</h2>
-        {!hasFetchedAnswers ? (
-          <button
-            onClick={fetchAnswers}
-            disabled={loading}
-            className="mt-4 rounded-lg bg-gray-900 px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
-          >
-            {loading ? "Loading..." : "Load answers"}
-          </button>
+        {loading ? (
+          <p className="mt-4 text-gray-500">Loading...</p>
         ) : (
           <div className="mt-4 space-y-4">
-            {answers.length === 0 && !loading && (
+            {answers.length === 0 && (
               <p className="text-gray-500">No other answers yet.</p>
             )}
             {answers.map((a) => (

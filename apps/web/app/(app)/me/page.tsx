@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
+import { PersonalBoardClient } from "./personal-board-client";
 
 export default async function MePage() {
   const supabase = await createClient();
@@ -13,18 +14,32 @@ export default async function MePage() {
     .eq("id", user.id)
     .single();
 
-  const { data: answers } = await supabase
+  const { data: allQuestions } = await supabase
+    .from("questions")
+    .select("id, text, effective_date")
+    .eq("scope", "global")
+    .is("community_id", null)
+    .order("effective_date", { ascending: false })
+    .limit(100);
+
+  const { data: myAnswers } = await supabase
     .from("answers")
-    .select(`
-      id,
-      text,
-      created_at,
-      question:questions(id, text, effective_date)
-    `)
+    .select("question_id, id, text, created_at")
     .eq("user_id", user.id)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(50);
+    .is("deleted_at", null);
+
+  const answersByQuestion = (myAnswers || []).reduce(
+    (acc, a) => {
+      acc[a.question_id] = a;
+      return acc;
+    },
+    {} as Record<string, { id: string; text: string; created_at: string }>
+  );
+
+  const questionsWithResponses = (allQuestions || []).map((q) => ({
+    ...q,
+    myAnswer: answersByQuestion[q.id] || null,
+  }));
 
   const { count: daysAnswered } = await supabase
     .from("answers")
@@ -39,9 +54,9 @@ export default async function MePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold">My Board</h1>
+      <h1 className="text-2xl font-bold">Personal Board</h1>
       <p className="mt-1 text-gray-600 dark:text-gray-400">
-        {profile?.username}
+        {profile?.username} — Your timeline of questions and answers
       </p>
 
       <div className="mt-6 flex gap-6">
@@ -60,24 +75,14 @@ export default async function MePage() {
       </div>
 
       <div className="mt-8">
-        <h2 className="text-xl font-semibold">Your answers</h2>
-        <div className="mt-4 space-y-4">
-          {answers?.map((a: any) => (
-            <div
-              key={a.id}
-              className="rounded-lg border border-gray-200 p-4 dark:border-gray-800"
-            >
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                {(a.question as any)?.effective_date}
-              </p>
-              <p className="mt-1 font-medium">{(a.question as any)?.text}</p>
-              <p className="mt-2">{a.text}</p>
-            </div>
-          ))}
-          {(!answers || answers.length === 0) && (
-            <p className="text-gray-500">No answers yet.</p>
-          )}
-        </div>
+        <h2 className="text-xl font-semibold">All questions & your responses</h2>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+          Every daily question with your answer (or a link to answer if you
+          missed it)
+        </p>
+        <PersonalBoardClient
+          questionsWithResponses={questionsWithResponses}
+        />
       </div>
     </div>
   );

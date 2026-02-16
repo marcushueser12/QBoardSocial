@@ -36,7 +36,7 @@ export default async function AppLayout({
               href="/board"
               className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
             >
-              Global
+              World Board
             </Link>
             <Link
               href="/me"
